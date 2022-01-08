@@ -582,9 +582,9 @@ class AlpacaInterface(ExchangeInterface):
                 # TODO alpaca is very broken right now and is only allowing whole number quantity so these are
                 #  overridden. If I see anyone creating an issue about this it better be that I can finally allow
                 #  fractional back
-                "base_min_size": 1,  # Minimum size to buy
+                "base_min_size": 1e-9,  # Minimum size to buy
                 "base_max_size": base_max_size,  # Maximum size to buy
-                "base_increment": 1,  # Specifies the minimum increment for the base_asset.
+                "base_increment": 1e-9,  # Specifies the minimum increment for the base_asset.
 
                 "quote_increment": quote_increment,  # Specifies the min order price as well as the price increment.
                 "buy": {
@@ -624,7 +624,7 @@ class AlpacaInterface(ExchangeInterface):
             ticker = yfinance.Ticker(symbol)
             result = ticker.history(start=start_date, end=stop_date, interval=number_interval_to_string(resolution))
 
-            result['time'] = result.index.view(int) // 10 ** 9
+            result['time'] = result.index.astype(int) // 10 ** 9
             result = result[['Open', 'High', 'Low', 'Close', 'Volume', 'time']].reset_index()
 
             result = result.rename(columns={
