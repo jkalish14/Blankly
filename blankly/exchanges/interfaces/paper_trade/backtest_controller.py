@@ -15,7 +15,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
-
+import copy
 import os
 import traceback
 import typing
@@ -27,6 +27,7 @@ from bokeh.layouts import column as bokeh_columns
 from bokeh.models import HoverTool
 from bokeh.palettes import Category10_10
 from bokeh.plotting import ColumnDataSource, figure, show
+from typing import List
 
 import blankly.exchanges.interfaces.paper_trade.metrics as metrics
 from blankly.exchanges.interfaces.paper_trade.backtest_result import BacktestResult
@@ -181,15 +182,21 @@ class BackTestController:
         # Because the times are run in order we can use this variable to optimize account value searching
         self.__current_search_index = 0
 
-        # Export a time for use in other classe
+        # Export a time for use in other classes
         self.time = None
 
-    def sync_prices(self, items: list[list[str, int, int, int]] = None) -> dict:
+        # Set these when prices are added to find the first price and the last price
+        self.user_start = None
+        self.user_stop = None
+
+        self.min_resolution = None
+
+    def sync_prices(self) -> dict:
         """
         Parse the local file cache for the requested data, if it doesn't exist, request it from the exchange
 
         args:
-            items: list of lists organized as ['symbol','start_time','end_time', 'resolution']
+            items: list of lists organized as ['symbol', 'start_time', 'end_time', 'resolution']
 
         returns:
             dictionary with keys for each 'symbol'
@@ -248,8 +255,7 @@ class BackTestController:
         #     return ranges
 
         # This is the data the user has requested: [asset_id, start_time, end_time, resolution]
-        if items is None:
-            items = self.__user_added_times
+        items = self.__user_added_times
 
         final_prices = {}
         for i in range(len(items)):
@@ -261,13 +267,15 @@ class BackTestController:
             end_time = items[i][2] - resolution
 
             if end_time < start_time:
-                raise RuntimeError("Must specify  a longer timeframe to run the backtest.")
+                raise RuntimeError("Must specify a longer timeframe to run the backtest.")
 
             download_ranges = []
 
             # Attempt to find the same symbol/asset possibilities in the backtest blocks
             try:
-                download_ranges = local_history_blocks[asset][resolution]
+                # Make sure to copy it because if you don't you delete this for any similar resolution
+                # If you don't copy it fails if you use two price events at the same resolution
+                download_ranges = copy.deepcopy(local_history_blocks[asset][resolution])
             except KeyError:
                 pass
 
@@ -420,6 +428,27 @@ class BackTestController:
             self.__user_added_times.append(identifier)
             if save:
                 self.queue_backtest_write = True
+
+            # This makes sure that we keep track of our bounds which is just generally kind of useful
+            # Any time a new price event is added we check this
+            if self.user_start is None:
+                self.user_start = start_time
+            else:
+                if start_time < self.user_start:
+                    self.user_start = start_time
+
+            if self.user_stop is None:
+                self.user_stop = end_time
+            else:
+                if end_time > self.user_stop:
+                    self.user_stop = end_time
+
+            # Now keep track of the smallest price event added
+            if self.min_resolution is None:
+                self.min_resolution = resolution
+            else:
+                if resolution < self.min_resolution:
+                    self.min_resolution = resolution
         else:
             print("already identified")
 
@@ -545,6 +574,13 @@ class BackTestController:
         # TODO the preferences should really be reloaded here so that micro changes such as the quote currency reset
         #  don't need to happen for every single key type
         self.quote_currency = self.preferences['settings']['quote_account_value_in']
+
+        # Get the symbol used for the benchmark
+        benchmark_symbol = self.preferences["settings"]["benchmark_symbol"]
+
+        if benchmark_symbol is not None:
+            # Check locally for the data and add to price_cache if we do not have it
+            self.add_prices(benchmark_symbol, self.user_start, self.user_stop, self.min_resolution)
 
         prices = self.sync_prices()
 
@@ -749,6 +785,7 @@ class BackTestController:
             raise RuntimeError("Empty result - no valid backtesting events occurred. Was there an error?.")
 
         no_trade_cycle_status = no_trade_cycle_status.append(no_trade, ignore_index=True).sort_values(by=['time'])
+<<<<<<< HEAD
         
         # Get the symbol used for the bench mark
         benchmark_symbol = self.preferences["settings"]["benchmark_symbol"]
@@ -782,6 +819,8 @@ class BackTestController:
             benchmark_results = {"history" : {"time" :  benchmark_time, benchmark_symbol : benchmark_value[use_price]}}
             benchmark_results_object = BacktestResult(benchmark_results)
             bm_time = [dt.fromtimestamp(ts) for ts in benchmark_time]
+=======
+>>>>>>> InputParser_benchmark_UpdatedMetrics
 
         figures = []
         # for i in self.prices:
@@ -803,18 +842,17 @@ class BackTestController:
         )
         
         # Define a helper function to avoid repeating code
-        def add_trace(self, figure, time, data, label):
+        def add_trace(self_, figure_, time_, data_, label):
             source = ColumnDataSource(data=dict(
-                        time=time,
-                        value=data.tolist()
+                        time=time_,
+                        value=data_.values.tolist()
                     ))
-            figure.step('time', 'value',
-                    source=source,
-                    line_width=2,
-                    color=self.__next_color(),
-                    legend_label=label,
-                    mode="after",
-                    )    
+            figure_.step('time', 'value',
+                         source=source,
+                         line_width=2,
+                         color=self_.__next_color(),
+                         legend_label=label,
+                         mode="after")
 
         if self.preferences['settings']['GUI_output']:
             global_x_range = None
@@ -828,11 +866,29 @@ class BackTestController:
 
                     # Add the no-trade line to the backtest
                     if column == 'Account Value (' + self.quote_currency + ')':
-                        add_trace(self, p, time, no_trade_cycle_status['Account Value (No Trades)'], 'Account Value (No Trades)' )
+                        add_trace(self, p, time, no_trade_cycle_status['Account Value (No Trades)'],
+                                  'Account Value (No Trades)')
 
                         # Add the benchmark, if requested
                         if benchmark_symbol is not None:
-                            add_trace(self, p, bm_time,  benchmark_value[use_price], f'Benchmark ({benchmark_symbol})')
+                            # This normalizes the benchmark value
+                            initial_account_value = cycle_status['Account Value (' + self.quote_currency + ')'].iloc[0]
+                            initial_benchmark_value = prices[benchmark_symbol][use_price].iloc[0]
+
+                            # This multiplier brings the initial asset price to the initial account value
+                            # initial_account_value = initial_benchmark_value * x
+                            multiplier = initial_account_value / initial_benchmark_value
+
+                            normalized_compare_series = prices[benchmark_symbol][use_price].multiply(multiplier)
+                            normalized_compare_time_series = prices[benchmark_symbol]['time']
+
+                            # We need to also cast the time series that is needed to compare
+                            # because it's only been done for the cycle status time
+                            normalized_compare_time_series = [dt.fromtimestamp(ts) for ts in
+                                                              normalized_compare_time_series]
+                            add_trace(self, p, normalized_compare_time_series,
+                                      normalized_compare_series,
+                                      f'Normalized Benchmark ({benchmark_symbol})')
                             
                     p.add_tools(hover)
 
@@ -915,19 +971,19 @@ class BackTestController:
                 return 'failed'
 
         risk_free_return_rate = self.preferences['settings']["risk_free_return_rate"]
-        metrics_indicators['Max Drawdown (%)']  = attempt(metrics.max_drawdown, history_and_returns)
+        metrics_indicators['Max Drawdown (%)'] = attempt(metrics.max_drawdown, history_and_returns)
         metrics_indicators['Variance (%)'] = attempt(metrics.variance, history_and_returns,
-                                                    {'trading_period' : interval_value})
+                                                     {'trading_period': interval_value})
         metrics_indicators['Sortino Ratio'] = attempt(metrics.sortino, history_and_returns,
-                                                    {'risk_free_rate': risk_free_return_rate,
-                                                    'trading_period': interval_value})
+                                                      {'risk_free_rate': risk_free_return_rate,
+                                                       'trading_period': interval_value})
         metrics_indicators['Sharpe Ratio'] = attempt(metrics.sharpe, history_and_returns,
-                                                    {'risk_free_rate': risk_free_return_rate,
-                                                    'trading_period': interval_value})
+                                                     {'risk_free_rate': risk_free_return_rate,
+                                                      'trading_period': interval_value})
         metrics_indicators['Calmar Ratio'] = attempt(metrics.calmar, history_and_returns, 
-                                                    {'trading_period': interval_value})
+                                                     {'trading_period': interval_value})
         metrics_indicators['Volatility'] = attempt(metrics.volatility, history_and_returns,
-                                                    {'trading_period' : interval_value})
+                                                   {'trading_period': interval_value})
         metrics_indicators['Value-at-Risk'] = attempt(metrics.var, history_and_returns)
         metrics_indicators['Conditional Value-at-Risk'] = attempt(metrics.cvar, history_and_returns)
         
@@ -940,18 +996,21 @@ class BackTestController:
 
         # If a benchmark was requested, add it to the pd_prices frame
         if benchmark_symbol is not None:
-            
             # Resample the benchmark results
-            resampled_benchmark_value = benchmark_results_object.resample_account(benchmark_symbol, interval_value)
+            resampled_benchmark_value = result_object.resample_account(benchmark_symbol,
+                                                                       interval_value,
+                                                                       use_asset_history=True,
+                                                                       use_price=use_price)
             
             # Push data into the dictionary for use by the metrics
             history_and_returns['benchmark_value'] = resampled_benchmark_value
             history_and_returns['benchmark_returns'] = resampled_benchmark_value.copy(deep=True)
-            history_and_returns['benchmark_returns']['value'] = history_and_returns['benchmark_returns']['value'].pct_change()
+            history_and_returns['benchmark_returns']['value'] = \
+                history_and_returns['benchmark_returns']['value'].pct_change()
             
             # Calculate beta
             metrics_indicators['Beta'] = attempt(metrics.beta, history_and_returns, 
-                                                {"trading_period" : interval_value})
+                                                 {"trading_period": interval_value})
 
         # This trys to reference vars created in the resample portion, so it has to also be in the specified
         #  resample if

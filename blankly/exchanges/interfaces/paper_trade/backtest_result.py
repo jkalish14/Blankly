@@ -21,8 +21,8 @@ from blankly.utils.utils import time_interval_to_seconds as _time_interval_to_se
 
 
 class BacktestResult:
-    def __init__(self, history_and_returns: dict, trades: dict = {}, history: dict = {},
-                 start_time: float = None, stop_time: float = None, quote_currency: str = None, price_events: list = []):
+    def __init__(self, history_and_returns: dict, trades: dict, history: dict,
+                 start_time: float, stop_time: float, quote_currency: str, price_events: list):
         # This can use a ton of memory if these attributes are not cleared
         self.history_and_returns = history_and_returns
         self.metrics = None  # Assigned after construction
@@ -51,7 +51,9 @@ class BacktestResult:
     def get_metrics(self) -> dict:
         return self.metrics
 
-    def resample_account(self, symbol, interval: [str, float]) -> DataFrame:
+    def resample_account(self, symbol, interval: [str, float],
+                         use_asset_history: bool = False,
+                         use_price=None) -> DataFrame:
         """
         Resample the raw account value metrics to any resolution
 
@@ -59,6 +61,8 @@ class BacktestResult:
             symbol: The column to resample at the interval resolution. This can include the account value column
             interval: A string such as '1h' or '1m' or a number in seconds such as 3600 or 60 which the values
             will be resampled at
+            use_asset_history: Use the history from the assets rather than the account history
+            use_price: Specify a price to use when querying comparison columns
         """
         search_index = 0
 
@@ -89,9 +93,14 @@ class BacktestResult:
         resampled_array = []
         interval = _time_interval_to_seconds(interval)
 
-        # Find the necessary values to assemble the resamples
-        time_array = self.history_and_returns['history']['time'].tolist()
-        price_array = self.history_and_returns['history'][symbol].tolist()
+        if use_asset_history:
+            # Find the necessary values to assemble the resamples
+            time_array = self.history[symbol]['time'].tolist()
+            price_array = self.history[symbol][use_price].tolist()
+        else:
+            # Find the necessary values to assemble the resamples
+            time_array = self.history_and_returns['history']['time'].tolist()
+            price_array = self.history_and_returns['history'][symbol].tolist()
 
         # Add the epoch
         epoch_start = time_array[0]
