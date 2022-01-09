@@ -758,8 +758,10 @@ class BackTestController:
             min_resolution = min([time[3] for time in self.__user_added_times])
 
             # Check locally for the data and add to price_cache if we do not have it
-            start_time, end_time = int(cycle_status['time'].iloc[0]), int(cycle_status['time'].iloc[-1])
-            benchmark_price = self.sync_prices([[benchmark_symbol, start_time, end_time + min_resolution, min_resolution]])[benchmark_symbol] 
+            start_time = int(cycle_status['time'].iloc[0])
+            end_time = max([price_event[2] for price_event in self.__user_added_times ])
+
+            benchmark_price = self.sync_prices([[benchmark_symbol, start_time, end_time, min_resolution]])[benchmark_symbol] 
             
             # Sometimes sync_prices returns with no 0 index.
             benchmark_price = benchmark_price.reset_index(drop=True)
