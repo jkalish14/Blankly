@@ -20,6 +20,7 @@ import os
 import traceback
 import typing
 from datetime import datetime as dt
+import copy
 
 import numpy as np
 import pandas as pd
