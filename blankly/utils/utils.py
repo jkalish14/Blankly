@@ -87,7 +87,11 @@ default_backtest_settings = {
         "ignore_user_exceptions": import_checks.UserInputParser(False, bool),
         "risk_free_return_rate": import_checks.UserInputParser(0.0, float, import_checks.in_range,
                                                                {"allowable_range": (0, 0.1)}),
+<<<<<<< HEAD
         "benchmark_symbol" : import_checks.UserInputParser(None, (str, type(None)))                                                    
+=======
+        "benchmark_symbol" : import_checks.UserInputParser(None, (str, type(None)))                                                     
+>>>>>>> InputParser_Benchmark_UpdatedMetrics
     }
 }
 
